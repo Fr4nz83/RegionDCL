@@ -3,6 +3,7 @@ import math
 import os
 import pickle as pkl
 import rasterio.features
+import pandas as pd
 import geopandas as gpd
 import numpy as np
 from scipy.spatial import KDTree
@@ -40,10 +41,10 @@ class Preprocess(object):
             os.makedirs(out_path)
 
         # Setup the names of several input subfolders.
-        self.building_in_path = in_path + 'building/building.parquet'
-        self.poi_in_path = in_path + 'poi/poi.parquet'
+        self.building_in_path = in_path + 'building/building.pkl'
+        self.poi_in_path = in_path + 'poi/poi.pkl'
         self.segmentation_in_path = in_path + 'segmentation/segmentation.parquet'
-        self.boundary_in_path = in_path + 'boundary/' + city + '.parquet'
+        self.boundary_in_path = in_path + 'boundary/boundary.pkl'
         self.building_out_path = out_path + 'building.pkl'
         self.poi_out_path = out_path + 'poi.pkl'
         self.segmentation_out_path = out_path + 'segmentation'
@@ -51,8 +52,8 @@ class Preprocess(object):
         # Determine the boundaries of the considered geographical area.
         # In case of Paris, we are going to consider the geometries of the IRIS cells.
         print(f'Loading boundary from {self.boundary_in_path}')
-        boundary_shapefile = gpd.read_parquet(self.boundary_in_path)
-        boundary = unary_union(boundary_shapefile['geometry'])
+        boundary_shapefile = gpd.GeoDataFrame(pd.read_pickle(self.boundary_in_path))
+        self.boundary = unary_union(boundary_shapefile['geometry'])
 
         #boundary = [boundary_row['geometry'] for index, boundary_row in boundary_shapefile.iterrows()]
         #if len(boundary) > 1:
@@ -73,6 +74,8 @@ class Preprocess(object):
         4. Attach the pois to buildings
         5. Save them to pickle, and return
         """
+
+        # Check if the buildings and pois have already been processed.
         if not force and os.path.exists(self.building_out_path):
             print('Loading building from {}'.format(self.building_out_path))
             with open(self.building_out_path, 'rb') as f:
@@ -81,9 +84,11 @@ class Preprocess(object):
             with open(self.poi_out_path, 'rb') as f:
                 poi = pkl.load(f)
             return building, poi
+
+        
         print('Preprocessing building and poi data...')
-        buildings_shapefile = gpd.read_parquet(self.building_in_path)
-        pois_shapefile = gpd.read_parquet(self.poi_in_path)
+        buildings_shapefile = gpd.GeoDataFrame(pd.read_pickle(self.building_in_path))
+        pois_shapefile = gpd.GeoDataFrame(pd.read_pickle(self.poi_in_path))
         building = []
         poi = []
         for index, building_row in tqdm(buildings_shapefile.iterrows(), total=buildings_shapefile.shape[0]):
@@ -93,6 +98,8 @@ class Preprocess(object):
             output['shape'] = shape
             output['type'] = building_row['type']
             building.append(output)
+        del buildings_shapefile
+        
         for index, poi_row in tqdm(pois_shapefile.iterrows(), total=pois_shapefile.shape[0]):
             output = {}
             # process point
@@ -101,6 +108,9 @@ class Preprocess(object):
             output['code'] = poi_row['code']
             output['fclass'] = poi_row['fclass']
             poi.append(output)
+        del pois_shapefile
+
+        
         print('Turning building type and poi code/fclass into one-hot...')
         building_type = set([b['type'] for b in building])
         poi_code = set([p['code'] for p in poi])
@@ -109,18 +119,24 @@ class Preprocess(object):
         poi_code_dict = {c: i for i, c in enumerate(poi_code)}
         poi_fclass_dict = {f: i for i, f in enumerate(poi_fclass)}
         for b in building:
-            b['onehot'] = [0] * len(building_type)
+            # b['onehot'] = [0] * len(building_type) # This is brutally inefficient with memory!
+            b['onehot'] = np.zeros(len(building_type), dtype=np.int8)
             b['onehot'][building_type_dict[b['type']]] = 1
+            
         poi_dim = len(poi_code) + len(poi_fclass)
         for p in poi:
-            p['onehot'] = [0] * poi_dim
+            # p['onehot'] = [0] * poi_dim # This is brutally inefficient with memory!
+            p['onehot'] = np.zeros(poi_dim, dtype=np.int8)
             p['onehot'][poi_code_dict[p['code']]] = 1
             p['onehot'][len(poi_code) + poi_fclass_dict[p['fclass']]] = 1
+
+        
         print('Attaching pois to buildings...')
         # build a kd-tree for poi
         poi_x = [p['x'] for p in poi]
         poi_y = [p['y'] for p in poi]
         poi_tree = KDTree(np.array([poi_x, poi_y]).T)
+        attached_poi_indices = set()  # Set to store indices of attached pois
         attached_poi = []
         for b in tqdm(building):
             # sum up all the pois in the building
@@ -138,13 +154,23 @@ class Preprocess(object):
                     continue
                 b['poi'] = [b['poi'][j] + poi[i]['onehot'][j] for j in range(poi_dim)]
                 attached_poi.append(poi[i])
-        poi_not_attached = [p for p in poi if p not in attached_poi]
+                attached_poi_indices.add(i)  # Add the index to the set
+
+        
+        print('Taking note of the POIs that are not attached to any building...')
+        # poi_not_attached = [p for p in poi if p not in attached_poi] # Incredibly slow, substituted with a set-based approach.
+        unattached_poi_indices = set(range(len(poi))) - attached_poi_indices
+        poi_not_attached = [poi[i] for i in unattached_poi_indices]
+
+        
         print('Saving building and poi data...')
         with open(self.building_out_path, 'wb') as f:
-            pkl.dump(building, f, protocol=4)
+            pkl.dump(building, f, protocol=5)
         with open(self.poi_out_path, 'wb') as f:
-            pkl.dump(poi_not_attached, f, protocol=4)
+            pkl.dump(poi_not_attached, f, protocol=5)
+        
         return building, poi_not_attached
+
 
     def poisson_disk_sampling(self, building_list, poi_list, radius, force=False):
         random_point_out_path = self.out_path + 'random_point_' + str(radius) + 'm.pkl'
@@ -158,6 +184,7 @@ class Preprocess(object):
             pkl.dump(result, f, protocol=4)
         return result
 
+    
     def partition(self, building_list, poi_list, random_point_list, radius, force=False):
         if not force and os.path.exists(self.segmentation_out_path):
             with open(self.segmentation_out_path, 'rb') as f:
@@ -212,6 +239,7 @@ class Preprocess(object):
             pkl.dump(result, f, protocol=4)
         return result
 
+        
     def rasterize_buildings(self, building_list, rotation=True, force=False):
         image_out_path = self.out_path + 'building_raster.npz'
         rotation_out_path = self.out_path + 'building_rotation.npz'
@@ -291,15 +319,11 @@ if __name__ == '__main__':
     assert radius > 50 # Too many sampling points will be too slow
 
     preprocessor = Preprocess(city)
+    building, poi = preprocessor.get_building_and_poi()
 
     # TODO: reactivate these lines as the code exploration progresses...
-    #building, poi = preprocessor.get_building_and_poi()
-
     #random_point = preprocessor.poisson_disk_sampling(building, poi, radius)
-
     #preprocessor.rasterize_buildings(building)
-
     #preprocessor.partition(building, poi, random_point, radius)
-
     #print(f'Random Points: {len(random_point)}')
 
