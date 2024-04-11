@@ -13,40 +13,54 @@ from tqdm import tqdm, trange
 
 from grid import Grid
 
-"""
-    This class implement common preprocessing for NYC and Singapore data
-    The preprocessing includes the following parts
-    - Turn the POI data and the building type into one-hot vector, Attach the POI data to the building data
-    - Perform Poisson-disk sampling on the boundary map, remove overlapped points
-    - Calculate density encoding and location encoding for each point
-    - Group the buildings and the POIs according to the patterns
-    - Group the patterns according to the regions
-"""
-
 
 class Preprocess(object):
+    """
+        This class implement common preprocessing for NYC and Singapore data
+        The preprocessing includes the following parts
+        - Turn the POI data and the building type into one-hot vector, Attach the POI data to the building data
+        - Perform Poisson-disk sampling on the boundary map, remove overlapped points
+        - Calculate density encoding and location encoding for each point
+        - Group the buildings and the POIs according to the patterns
+        - Group the patterns according to the regions
+    """
+
+    ### PUBLIC CONSTRUCTORS ###
+
     def __init__(self, city):
-        in_path = 'data/projected/{}/'.format(city)
-        out_path = 'data/processed/{}/'.format(city)
+
+        # Setup the names of the input/output folders.
+        in_path = f'./data/projected/{city}/'
+        out_path = f'./data/processed/{city}/'
         self.in_path = in_path
         self.out_path = out_path
+
+        # Create the output folder if it does not exist.
         if not os.path.exists(out_path):
             os.makedirs(out_path)
-        self.building_in_path = in_path + 'building/building.shp'
-        self.poi_in_path = in_path + 'poi/poi.shp'
+
+        # Setup the names of several input subfolders.
+        self.building_in_path = in_path + 'building/building.parquet'
+        self.poi_in_path = in_path + 'poi/poi.parquet'
+        self.segmentation_in_path = in_path + 'segmentation/segmentation.parquet'
+        self.boundary_in_path = in_path + 'boundary/' + city + '.parquet'
         self.building_out_path = out_path + 'building.pkl'
         self.poi_out_path = out_path + 'poi.pkl'
-        self.segmentation_in_path = in_path + 'segmentation/segmentation.shp'
         self.segmentation_out_path = out_path + 'segmentation'
-        self.boundary_in_path = in_path + 'boundary/' + city + '.shp'
-        print('Loading boundary from {}'.format(self.boundary_in_path))
-        boundary_shapefile = gpd.read_file(self.boundary_in_path)
-        boundary = [boundary_row['geometry'] for index, boundary_row in boundary_shapefile.iterrows()]
-        if len(boundary) > 1:
-            boundary = unary_union(boundary)
-        else:
-            boundary = boundary[0]
-        self.boundary = boundary
+
+        # Determine the boundaries of the considered geographical area.
+        # In case of Paris, we are going to consider the geometries of the IRIS cells.
+        print(f'Loading boundary from {self.boundary_in_path}')
+        boundary_shapefile = gpd.read_parquet(self.boundary_in_path)
+        boundary = unary_union(boundary_shapefile['geometry'])
+
+        #boundary = [boundary_row['geometry'] for index, boundary_row in boundary_shapefile.iterrows()]
+        #if len(boundary) > 1:
+        #    boundary = unary_union(boundary)
+        #else:
+        #    boundary = boundary[0]
+        #self.boundary = boundary
+
 
     def get_building_and_poi(self, force=False):
         """
@@ -68,8 +82,8 @@ class Preprocess(object):
                 poi = pkl.load(f)
             return building, poi
         print('Preprocessing building and poi data...')
-        buildings_shapefile = gpd.read_file(self.building_in_path)
-        pois_shapefile = gpd.read_file(self.poi_in_path)
+        buildings_shapefile = gpd.read_parquet(self.building_in_path)
+        pois_shapefile = gpd.read_parquet(self.poi_in_path)
         building = []
         poi = []
         for index, building_row in tqdm(buildings_shapefile.iterrows(), total=buildings_shapefile.shape[0]):
@@ -275,10 +289,17 @@ if __name__ == '__main__':
     city = args.city
     radius = args.radius
     assert radius > 50 # Too many sampling points will be too slow
+
     preprocessor = Preprocess(city)
-    building, poi = preprocessor.get_building_and_poi()
-    random_point = preprocessor.poisson_disk_sampling(building, poi, radius)
-    preprocessor.rasterize_buildings(building)
-    preprocessor.partition(building, poi, random_point, radius)
-    print(f'Random Points: {len(random_point)}')
+
+    # TODO: reactivate these lines as the code exploration progresses...
+    #building, poi = preprocessor.get_building_and_poi()
+
+    #random_point = preprocessor.poisson_disk_sampling(building, poi, radius)
+
+    #preprocessor.rasterize_buildings(building)
+
+    #preprocessor.partition(building, poi, random_point, radius)
+
+    #print(f'Random Points: {len(random_point)}')
 
