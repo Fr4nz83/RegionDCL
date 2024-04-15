@@ -6,11 +6,16 @@ import rasterio.features
 import pandas as pd
 import geopandas as gpd
 import numpy as np
+
 from scipy.spatial import KDTree
+from scipy.sparse import lil_matrix
+
 from shapely import affinity
-from shapely.geometry import Point
+from shapely.geometry import Point, MultiPolygon
 from shapely.ops import unary_union
+
 from tqdm import tqdm, trange
+
 
 from grid import Grid
 
@@ -43,17 +48,20 @@ class Preprocess(object):
         # Setup the names of several input subfolders.
         self.building_in_path = in_path + 'building/building.pkl'
         self.poi_in_path = in_path + 'poi/poi.pkl'
-        self.segmentation_in_path = in_path + 'segmentation/segmentation.parquet'
+        self.segmentation_in_path = in_path + 'segmentation/segmentation.pkl'
         self.boundary_in_path = in_path + 'boundary/boundary.pkl'
         self.building_out_path = out_path + 'building.pkl'
         self.poi_out_path = out_path + 'poi.pkl'
         self.segmentation_out_path = out_path + 'segmentation'
 
         # Determine the boundaries of the considered geographical area.
-        # In case of Paris, we are going to consider the geometries of the IRIS cells.
+        # NOTE in the case of Paris, we are going to consider the geometries of the IRIS cells.
+        # NOTE 2: after unary_union, if we have a polygon convert it into a multipolygon, as it
+        #         is required by the preprocessing's Grid class.
         print(f'Loading boundary from {self.boundary_in_path}')
         boundary_shapefile = gpd.GeoDataFrame(pd.read_pickle(self.boundary_in_path))
         self.boundary = unary_union(boundary_shapefile['geometry'])
+        if ~isinstance(self.boundary, MultiPolygon) : self.boundary = MultiPolygon([self.boundary])
 
         #boundary = [boundary_row['geometry'] for index, boundary_row in boundary_shapefile.iterrows()]
         #if len(boundary) > 1:
@@ -83,7 +91,7 @@ class Preprocess(object):
             print('Loading poi from {}'.format(self.poi_out_path))
             with open(self.poi_out_path, 'rb') as f:
                 poi = pkl.load(f)
-            return building, poi
+            return [{'shape': b['shape']} for b in building], poi
 
         
         print('Preprocessing building and poi data...')
@@ -169,15 +177,20 @@ class Preprocess(object):
         with open(self.poi_out_path, 'wb') as f:
             pkl.dump(poi_not_attached, f, protocol=5)
         
-        return building, poi_not_attached
+        # NOTE: the subsequent methods will only need the key "shape" from every building.
+        # return building, poi_not_attached
+        return [{'shape': building['shape']} for building in building_list], poi_not_attached
 
 
     def poisson_disk_sampling(self, building_list, poi_list, radius, force=False):
         random_point_out_path = self.out_path + 'random_point_' + str(radius) + 'm.pkl'
+        
         if not force and os.path.exists(random_point_out_path):
+            print("Poisson disk sampling has already been executed for this combination of city and radius!")
             with open(random_point_out_path, 'rb') as f:
                 result = pkl.load(f)
             return result
+        
         grid = Grid(self.boundary, radius, building_list, poi_list)
         result = grid.poisson_disk_sampling()
         with open(random_point_out_path, 'wb') as f:
@@ -190,8 +203,11 @@ class Preprocess(object):
             with open(self.segmentation_out_path, 'rb') as f:
                 result = pkl.load(f)
             return result
+        
         print('Partition city data by road network...')
-        segmentation_shapefile = gpd.read_file(self.segmentation_in_path)
+        # segmentation_shapefile = gpd.read_file(self.segmentation_in_path)
+        segmentation_shapefile = gpd.GeoDataFrame(pd.read_pickle(self.segmentation_in_path))
+        
         segmentation_polygon_list = []
         for row in segmentation_shapefile.iterrows():
             it = row[1]
@@ -241,10 +257,13 @@ class Preprocess(object):
 
         
     def rasterize_buildings(self, building_list, rotation=True, force=False):
+        
         image_out_path = self.out_path + 'building_raster.npz'
         rotation_out_path = self.out_path + 'building_rotation.npz'
         if not force and os.path.exists(image_out_path):
             return np.load(image_out_path)['arr_0']
+            
+            
         print('Rasterize buildings...')
         images = np.zeros((len(building_list), 224, 224), dtype=np.uint8)
         rotations = np.zeros((len(building_list), 2), dtype=float)
@@ -320,10 +339,11 @@ if __name__ == '__main__':
 
     preprocessor = Preprocess(city)
     building, poi = preprocessor.get_building_and_poi()
+    random_point = preprocessor.poisson_disk_sampling(building, poi, radius)
 
     # TODO: reactivate these lines as the code exploration progresses...
-    #random_point = preprocessor.poisson_disk_sampling(building, poi, radius)
     #preprocessor.rasterize_buildings(building)
-    #preprocessor.partition(building, poi, random_point, radius)
-    #print(f'Random Points: {len(random_point)}')
+    
+    preprocessor.partition(building, poi, random_point, radius)
+    print(f'Random Points: {len(random_point)}')
 

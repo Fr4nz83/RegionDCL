@@ -30,12 +30,14 @@ class Grid(object):
         self.num_grid_y = int((self.max_y - self.min_y) / self.grid_size) + 1
         self.buildings = [[building['shape'].centroid.x, building['shape'].centroid.y] for building in buildings]
         self.pois = [[poi['x'], poi['y']] for poi in pois]
+        
+        print("Building Grid's KD-Tree...")
         self.point_tree = KDTree(self.buildings + self.pois)
         
         print('Grid:', self.num_grid_x, 'x', self.num_grid_y, ', grid size:', self.grid_size)
         self.grid = [[[] for _ in range(self.num_grid_y)] for _ in range(self.num_grid_x)]
         transform = rasterio.transform.from_bounds(self.min_x, self.max_y, self.max_x, self.min_y, self.num_grid_x, self.num_grid_y)
-        self.valid_grid = rasterio.features.rasterize(self.boundary.geometry, out_shape=(self.num_grid_y, self.num_grid_x), transform=transform)
+        self.valid_grid = rasterio.features.rasterize(self.boundary.geoms, out_shape=(self.num_grid_y, self.num_grid_x), transform=transform)
         # plt.imshow(self.valid_grid)
         # plt.show()
         self.random_points = []
