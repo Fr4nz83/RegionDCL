@@ -15,6 +15,7 @@ from shapely.geometry import Point, MultiPolygon
 from shapely.ops import unary_union
 
 from tqdm import tqdm, trange
+import h5py
 
 
 from grid import Grid
@@ -256,7 +257,7 @@ class Preprocess(object):
         return result
 
         
-    def rasterize_buildings(self, building_list, rotation=True, force=False):
+    def rasterize_buildings_OLD(self, building_list, rotation=True, force=False):
         
         image_out_path = self.out_path + 'building_raster.npz'
         rotation_out_path = self.out_path + 'building_rotation.npz'
@@ -322,6 +323,99 @@ class Preprocess(object):
             images[i] = image
         np.savez_compressed(image_out_path, images)
         np.savez_compressed(rotation_out_path, rotations)
+
+
+    def rasterize_buildings(self, building_list, batch_size=50000, rotation=True, force=False):
+        
+        image_out_path = self.out_path + 'building_raster.hdf5'
+        rotation_out_path = self.out_path + 'building_rotation.hdf5'
+
+        # Check if buildings have already been rasterized.
+        if not force and os.path.exists(image_out_path):
+            return # np.load(image_out_path)['arr_0']
+            
+            
+        total_buildings = len(building_list)
+        num_batches = (total_buildings + batch_size - 1) // batch_size  # Calculate the number of batches
+    
+        # Open two HDF5 files, one for images and one for rotations
+        with h5py.File(raster_out_path, 'w') as f_raster, h5py.File(rotation_out_path, 'w') as f_rotation:
+            
+            # Pre-create datasets for images and rotations with compression
+            dset_images = f_raster.create_dataset('images', (total_buildings, 224, 224), dtype='uint8', compression="gzip")
+            dset_rotations = f_rotation.create_dataset('rotations', (total_buildings, 2), dtype='float', compression="gzip")
+    
+            batch_loader = trange(num_batches, desc='Rasterizing batches of buildings')
+            for batch_index in batch_loader:
+                start_index = batch_index * batch_size
+                end_index = min((batch_index + 1) * batch_size, total_buildings)
+                batch_building_list = building_list[start_index:end_index]
+        
+                # Initialize arrays for this batch
+                images = np.zeros((len(batch_building_list), 224, 224), dtype=np.uint8)
+                rotations = np.zeros((len(batch_building_list), 2), dtype=float)
+                
+                for i, building in enumerate(batch_building_list):
+                    polygon = building['shape']
+                    if rotation:
+                        # rotate the polygon to align with the x-axis
+                        rectangle = polygon.minimum_rotated_rectangle
+                        xc = polygon.centroid.x
+                        yc = polygon.centroid.y
+                        rec_x = []
+                        rec_y = []
+                        for point in rectangle.exterior.coords:
+                            rec_x.append(point[0])
+                            rec_y.append(point[1])
+                        top = np.argmax(rec_y)
+                        top_left = top - 1 if top > 0 else 3
+                        top_right = top + 1 if top < 3 else 0
+                        x0, y0 = rec_x[top], rec_y[top]
+                        x1, y1 = rec_x[top_left], rec_y[top_left]
+                        x2, y2 = rec_x[top_right], rec_y[top_right]
+                        d1 = np.linalg.norm([x0 - x1, y0 - y1])
+                        d2 = np.linalg.norm([x0 - x2, y0 - y2])
+                        if d1 > d2:
+                            cosp = (x1 - x0) / d1
+                            sinp = (y0 - y1) / d1
+                        else:
+                            cosp = (x2 - x0) / d2
+                            sinp = (y0 - y2) / d2
+                        rotations[i] = [cosp, sinp]
+                        matrix = (cosp, -sinp, 0.0,
+                                  sinp, cosp, 0.0,
+                                  0.0, 0.0, 1.0,
+                                  xc - xc * cosp + yc * sinp, yc - xc * sinp - yc * cosp, 0.0)
+                        polygon = affinity.affine_transform(polygon, matrix)
+                    
+                    # get the polygon bounding box
+                    min_x, min_y, max_x, max_y = polygon.bounds
+                    length_x = max_x - min_x
+                    length_y = max_y - min_y
+                    
+                    # ensure the bounding box is square
+                    if length_x > length_y:
+                        min_y -= (length_x - length_y) / 2
+                        max_y += (length_x - length_y) / 2
+                    else:
+                        min_x -= (length_y - length_x) / 2
+                        max_x += (length_y - length_x) / 2
+                    length = max(length_x, length_y)
+                    
+                    # enlarge the bounding box by 20%
+                    min_x -= length * 0.1
+                    min_y -= length * 0.1
+                    max_x += length * 0.1
+                    max_y += length * 0.1
+                    
+                    # get transform from the new bounding box to the image
+                    transform = rasterio.transform.from_bounds(min_x, min_y, max_x, max_y, 224, 224)
+                    image = rasterio.features.rasterize([polygon], out_shape=(224, 224), transform=transform)
+                    images[i] = image
+       
+                # Write batch data to the HDF5 datasets
+                dset_images[start_index:end_index] = images
+                dset_rotations[start_index:end_index] = rotations
 
 
 def parse_args():
