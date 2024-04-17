@@ -434,10 +434,7 @@ if __name__ == '__main__':
     preprocessor = Preprocess(city)
     building, poi = preprocessor.get_building_and_poi()
     random_point = preprocessor.poisson_disk_sampling(building, poi, radius)
-
-    # TODO: reactivate these lines as the code exploration progresses...
-    #preprocessor.rasterize_buildings(building)
-    
+    preprocessor.rasterize_buildings(building)
     preprocessor.partition(building, poi, random_point, radius)
     print(f'Random Points: {len(random_point)}')
 
