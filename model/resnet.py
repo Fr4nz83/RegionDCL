@@ -135,21 +135,21 @@ class ResNet(torch.nn.Module):
 
 
 class SimCLRTrainer(object):
-    def __init__(self, images_path):
+    def __init__(self, images_path : str, batch_size : int, num_workers_dataloader : int):
         self.data = ImageDataset(images_path)
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.model = ResNet().to(self.device)
         self.criterion = self.infonce_loss
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.0001)
         self.train_loader = torch.utils.data.DataLoader(self.data,
-                                                        batch_size=32,
+                                                        batch_size=batch_size,
                                                         shuffle=True,
-                                                        num_workers=8,
+                                                        num_workers=num_workers_dataloader,
                                                         collate_fn=ImageDataset.collate_fn_augmentation)
         self.test_loader = torch.utils.data.DataLoader(self.data,
-                                                       batch_size=32,
+                                                       batch_size=batch_size,
                                                        shuffle=False,
-                                                       num_workers=8,
+                                                       num_workers=num_workers_dataloader,
                                                        collate_fn=ImageDataset.collate_fn_embed)
 
     
@@ -170,7 +170,9 @@ class SimCLRTrainer(object):
                 self.optimizer.step()
                 # batch.set_description(f'Epoch {epoch} loss: {loss.item()}')
                 losses.append(loss.item())
+            
             print(f'Epoch {epoch} loss: {np.mean(losses)}')
+            
 
 
     def embed(self):
@@ -193,9 +195,11 @@ class SimCLRTrainer(object):
         return torch.mean(loss)
 
 
-def train_unsupervised(city):
+def train_unsupervised(city : str, batch_size : int, num_workers_dataloader : int):
     path_images = f"./data/processed/{city}/building_raster.hdf5"
-    trainer = SimCLRTrainer(path_images)
+    print(f"Processing building raster images dataset {path_images}, batch size {batch_size}, num_workers_dataloader {num_workers_dataloader}")
+    
+    trainer = SimCLRTrainer(path_images, batch_size, num_workers_dataloader)
     trainer.train(3)
     embeddings = trainer.embed()
     np.save(f'data/processed/{city}/building_features.npy', embeddings)
@@ -204,4 +208,4 @@ def train_unsupervised(city):
 if __name__ == '__main__':
     os.chdir('..')
     city = 'Singapore'
-    train_unsupervised(city)
+    train_unsupervised(city, 64, 8)
