@@ -173,15 +173,20 @@ class SimCLRTrainer(object):
             
             print(f'Epoch {epoch} loss: {np.mean(losses)}')
             
+            ### Save to disk the parameters of the best trained model found during training ###
+            # torch.save(self.model, f'resnet18_epoch_{epoch+1}.pth')
+            
 
 
     def embed(self):
         self.model.eval()
         embeddings = []
         with torch.no_grad():
-            for x in self.test_loader:
-                x = torch.from_numpy(x).float().to(self.device)
-                embeddings.append(self.model.get_feature(x).cpu().numpy())
+            for i, batch in enumerate(tqdm(self.test_loader, desc='Processing test set')):
+                x = torch.from_numpy(batch).float().to(self.device)
+                batch_embeddings = self.model.get_feature(x).cpu().numpy()
+                # print(f"Shape embeddings batch: {embedding.shape}")
+                embeddings.append(batch_embeddings)
         return np.concatenate(embeddings, axis=0)
 
 
@@ -195,14 +200,23 @@ class SimCLRTrainer(object):
         return torch.mean(loss)
 
 
+
 def train_unsupervised(city : str, batch_size : int, num_workers_dataloader : int):
+    
     path_images = f"./data/processed/{city}/building_raster.hdf5"
     print(f"Processing building raster images dataset {path_images}, batch size {batch_size}, num_workers_dataloader {num_workers_dataloader}")
-    
+
+    # Fine-tune ResNet-18 on the raster images of the considered city's buildings. 
     trainer = SimCLRTrainer(path_images, batch_size, num_workers_dataloader)
     trainer.train(3)
     embeddings = trainer.embed()
+    
+    ### Save to disk the parameters of the best trained model found during training ###
+    torch.save(trainer.model, f'data/processed/{city}/resnet18.pth')
+    
+    ### Save the embeddings to disk. ###
     np.save(f'data/processed/{city}/building_features.npy', embeddings)
+
 
 
 if __name__ == '__main__':
