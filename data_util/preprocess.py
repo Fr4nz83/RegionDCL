@@ -325,7 +325,7 @@ class Preprocess(object):
         np.savez_compressed(rotation_out_path, rotations)
 
 
-    def rasterize_buildings(self, building_list, batch_size=50000, rotation=True, force=False):
+    def rasterize_buildings(self, building_list, batch_size=50000, hdf5_chunk_size=128, rotation=True, force=False):
         
         image_out_path = self.out_path + 'building_raster.hdf5'
         rotation_out_path = self.out_path + 'building_rotation.hdf5'
@@ -342,8 +342,16 @@ class Preprocess(object):
         with h5py.File(raster_out_path, 'w') as f_raster, h5py.File(rotation_out_path, 'w') as f_rotation:
             
             # Pre-create datasets for images and rotations with compression
-            dset_images = f_raster.create_dataset('images', (total_buildings, 224, 224), dtype='uint8', compression="gzip")
-            dset_rotations = f_rotation.create_dataset('rotations', (total_buildings, 2), dtype='float', compression="gzip")
+            dset_images = f_raster.create_dataset('images', 
+                                                  (total_buildings, 224, 224), 
+                                                  chunks=(hdf5_chunk_size, 224, 224), 
+                                                  dtype='uint8', 
+                                                  compression="gzip")
+            dset_rotations = f_rotation.create_dataset('rotations', 
+                                                       (total_buildings, 2), 
+                                                       chunks=(hdf5_chunk_size, 2), 
+                                                       dtype='float', 
+                                                       compression="gzip")
     
             batch_loader = trange(num_batches, desc='Rasterizing batches of buildings')
             for batch_index in batch_loader:
