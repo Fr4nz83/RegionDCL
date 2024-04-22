@@ -209,17 +209,15 @@ def train_unsupervised(city : str, batch_size : int, num_workers_dataloader : in
     # Fine-tune ResNet-18 on the raster images of the considered city's buildings. 
     trainer = SimCLRTrainer(path_images, batch_size, num_workers_dataloader)
     trainer.train(3)
-    embeddings = trainer.embed()
-    
-    ### Save to disk the parameters of the best trained model found during training ###
-    torch.save(trainer.model, f'data/processed/{city}/resnet18.pth')
+    torch.save(trainer.model, f'data/processed/{city}/resnet18.pth') # Save the finetuned model to disk.
     
     ### Save the embeddings to disk. ###
+    embeddings = trainer.embed()
     np.save(f'data/processed/{city}/building_features.npy', embeddings)
 
 
 
 if __name__ == '__main__':
     os.chdir('..')
-    city = 'Singapore'
+    city = 'Paris'
     train_unsupervised(city, 64, 8)
