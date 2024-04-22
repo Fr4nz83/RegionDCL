@@ -51,20 +51,33 @@ if __name__ == '__main__':
                                      bottleneck_layers=args.bottleneck_layers,
                                      bottleneck_dropout=args.bottleneck_dropout,
                                      bottleneck_activation=args.bottleneck_activation).to(device)
-    # Encode building pattern
+    # Encode building patterns.
     pattern_optimizer = torch.optim.Adam(pattern_encoder.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     pattern_scheduler = torch.optim.lr_scheduler.StepLR(pattern_optimizer, step_size=1, gamma=args.gamma)
     pattern_trainer = PatternTrainer(city_data, pattern_encoder, pattern_optimizer, pattern_scheduler)
     pattern_trainer.train_pattern_contrastive(epochs=20, save_name=args.save_name)
+    print('Pattern (building groups) training finished. Embeddings have been saved in embeddings/ directory.')
+
+    
+    ### Encode regions ###
+    # embeddings = pattern_trainer.get_embeddings()
+    embeddings = np.load(f'embeddings/{args.city}/{args.save_name}_20.npy')
     region_aggregator = RegionEncoder(d_hidden=args.dim, d_head=8)
     region_aggregator.to(device)
     region_optimizer = torch.optim.Adam(region_aggregator.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     region_scheduler = torch.optim.lr_scheduler.StepLR(region_optimizer, step_size=1, gamma=args.gamma)
-    region_trainer = RegionTrainer(city_data, pattern_encoder, pattern_optimizer, pattern_scheduler, region_aggregator,
-                                   region_optimizer, region_scheduler)
-    # embeddings = pattern_trainer.get_embeddings()
-    # Alternatively, you can load the trained pattern embedding
-    embeddings = np.load(f'embeddings/{args.city}/{args.save_name}_20.npy')
-    region_trainer.train_region_triplet_freeze(epochs=20, embeddings=embeddings, adaptive=not args.fixed, save_name='RegionDCL_',
+    region_trainer = RegionTrainer(city_data, 
+                                   pattern_encoder, 
+                                   pattern_optimizer, 
+                                   pattern_scheduler, 
+                                   region_aggregator,
+                                   region_optimizer, 
+                                   region_scheduler)
+
+    region_trainer.train_region_triplet_freeze(epochs=20, 
+                                               embeddings=embeddings,
+                                               adaptive=not args.fixed,
+                                               save_name='RegionDCL_',
                                                window_sizes=[1000, 2000, 3000])
-    print('Training finished. Embeddings have been saved in embeddings/ directory.')
+    
+    print('Training finished. Region embeddings have been saved in embeddings/ directory.')

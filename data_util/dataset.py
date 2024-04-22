@@ -15,10 +15,17 @@ from tqdm import tqdm
 
 
 class CityData(object):
-    def __init__(self, city, random_radius=100, with_type=True, with_random=True, cached_region_path=None,
+    def __init__(self, 
+                 city, 
+                 random_radius=100, 
+                 with_type=True, 
+                 with_random=True, 
+                 cached_region_path=None,
                  cached_grid_path=None):
-        assert city in ['NYC', 'Singapore']
+        
+        # assert city in ['NYC', 'Singapore']
         self.city = city
+        
         # Try to load cached data
         in_path = 'data/processed/{}/'.format(city)
         # Create cache path
@@ -27,6 +34,8 @@ class CityData(object):
             os.makedirs(cache_dir)
         cached_pattern_path = 'cache/pattern_{}_{}_'.format(city, random_radius) + (
             'with_type' if with_type else '') + ('_no_random' if not with_random else '') + '.pkl'
+        
+        # Check if cached data exists...
         if os.path.exists(cached_pattern_path):
             with open(cached_pattern_path, 'rb') as f:
                 self.patterns = pkl.load(f)
@@ -35,23 +44,34 @@ class CityData(object):
                     if pattern['poi_feature'] is not None:
                         self.poi_feature_dim = pattern['poi_feature'].shape[1]
                         break
+
+        # If cached data does not exist, then proceed to create it.
         else:
             # process pattern data
+            print("Generating cached city data...")
+            print("Loading building data...")
             with open(in_path + 'building.pkl', 'rb') as f:
                 buildings = pkl.load(f)
             self.building_shape_feature = np.load(in_path + 'building_features.npy')
             self.building_rotation = np.load(in_path + 'building_rotation.npz')['arr_0']
+
+            print("Loading Poisson sampling data...")
             with open(in_path + 'random_point_' + str(random_radius) + 'm.pkl', 'rb') as f:
                 self.random_points = pkl.load(f)
+                
             # Poi outside buildings
+            print("Loading POI data...")
             with open(in_path + 'poi.pkl', 'rb') as f:
                 pois = pkl.load(f)
+                
             self.building_feature_dim = 1 + 2 + self.building_shape_feature.shape[1] + len(buildings[0]['poi'])
             if with_type:
                 self.building_feature_dim += len(buildings[0]['onehot'])
                 random_path = 'data/processed/{}/random_point_with_type.npy'.format(self.city)
             else:
                 random_path = 'data/processed/{}/random_point.npy'.format(self.city)
+
+            
             if os.path.exists(random_path):
                 self.random_feature = np.load(random_path)
             if not os.path.exists(random_path) or self.random_feature.shape[1] != self.building_feature_dim:
@@ -60,6 +80,7 @@ class CityData(object):
 
             self.poi_feature_dim = len(pois[0]['onehot'])
 
+            
             self.patterns = []
             # Road network segmentation
             print('Pre-calculating pattern features...')
@@ -110,6 +131,7 @@ class CityData(object):
                 pkl.dump(self.patterns, f)
         if cached_region_path is None:
             cached_region_path = 'cache/region_{}.pkl'.format(city)
+            
         if os.path.exists(cached_region_path):
             with open(cached_region_path, 'rb') as f:
                 self.regions = pkl.load(f)
