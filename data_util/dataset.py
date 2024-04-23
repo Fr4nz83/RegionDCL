@@ -248,7 +248,8 @@ class UnsupervisedPatternDataset(Dataset):
             max_building_seq_len = max(max_building_seq_len, building_seq_len)
         building_feature = np.zeros((max_building_seq_len, batch_size, building_feature_list[0].shape[1]),
                                     dtype=np.float32)
-        building_mask = np.ones((batch_size, max_building_seq_len), dtype=np.bool)
+        # building_mask = np.ones((batch_size, max_building_seq_len), dtype=np.bool) # np.bool has been deprecated.
+        building_mask = np.ones((batch_size, max_building_seq_len), dtype=bool)
         xy = np.zeros((max_building_seq_len, batch_size, 2), dtype=np.float32)
         for i in range(batch_size):
             building_seq_len = building_feature_list[i].shape[0]
@@ -269,7 +270,8 @@ class UnsupervisedPatternDataset(Dataset):
             if max_poi_seq_len > max_seq_len_limit:
                 max_poi_seq_len = max_seq_len_limit
             poi_feature = np.zeros((max_poi_seq_len, batch_size, poi_feature_dim), dtype=np.float32)
-            poi_mask = np.ones((batch_size, max_poi_seq_len), dtype=np.bool)
+            # poi_mask = np.ones((batch_size, max_poi_seq_len), dtype=np.bool) # np.bool has been deprecated!
+            poi_mask = np.ones((batch_size, max_poi_seq_len), dtype=bool)
             for i in range(batch_size):
                 if batch[i]['poi_feature'] is not None:
                     poi_seq_len = batch[i]['poi_feature'].shape[0]

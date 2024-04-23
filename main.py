@@ -79,5 +79,4 @@ if __name__ == '__main__':
                                                adaptive=not args.fixed,
                                                save_name='RegionDCL_',
                                                window_sizes=[1000, 2000, 3000])
-    
     print('Training finished. Region embeddings have been saved in embeddings/ directory.')
